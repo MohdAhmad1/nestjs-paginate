@@ -1,11 +1,19 @@
 import { Logger, ServiceUnavailableException } from '@nestjs/common'
-import { FindOptionsRelations, FindOptionsUtils, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm'
+import {
+    Brackets,
+    FindOptionsRelations,
+    FindOptionsUtils,
+    ObjectLiteral,
+    Repository,
+    SelectQueryBuilder,
+} from 'typeorm'
 import { OrmUtils } from 'typeorm/util/OrmUtils'
 import { PaginateQuery } from './decorator'
 import { addFilter } from './filter'
 import {
     checkIsEmbedded,
     checkIsRelation,
+    Column,
     extractVirtualProperty,
     fixColumnAlias,
     generateWhereStatement,
@@ -19,6 +27,7 @@ import {
     SortBy,
 } from './helper'
 import { PaginateConfig, Paginated, PaginationLimit, PaginationType } from './types'
+import { WherePredicateOperator } from 'typeorm/query-builder/WhereClause'
 
 const logger: Logger = new Logger('nestjs-paginate')
 
@@ -29,7 +38,7 @@ export async function paginate<T extends ObjectLiteral>(
 ): Promise<Paginated<T>> {
     const queryBuilder = new NestJsPaginate(repo, query, config)
 
-    queryBuilder.applyColumnsSelection().applyFilters().applyPagination().applySorting()
+    queryBuilder.applyColumnsSelection().applyFilters().applyPagination().applySorting().applySearch()
 
     return queryBuilder.getPaginatedResponse()
 }
@@ -223,22 +232,16 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     }
 
     private get paginationLimit() {
+        if (this.query.limit === PaginationLimit.COUNTER_ONLY) return PaginationLimit.COUNTER_ONLY
+
         const defaultLimit = this.config.defaultLimit || PaginationLimit.DEFAULT_LIMIT
         const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
 
-        if (this.query.limit === PaginationLimit.COUNTER_ONLY) {
-            return PaginationLimit.COUNTER_ONLY
-        }
-
         if (!this.isPaginated) return defaultLimit
 
-        if (maxLimit === PaginationLimit.NO_PAGINATION) {
-            return this.query.limit ?? defaultLimit
-        }
+        if (maxLimit === PaginationLimit.NO_PAGINATION) return this.query.limit ?? defaultLimit
 
-        if (this.query.limit === PaginationLimit.NO_PAGINATION) {
-            return defaultLimit
-        }
+        if (this.query.limit === PaginationLimit.NO_PAGINATION) return defaultLimit
 
         return Math.min(this.query.limit ?? defaultLimit, maxLimit)
     }
@@ -261,11 +264,83 @@ export class NestJsPaginate<T extends ObjectLiteral> {
         return this
     }
 
+    private getSearchableColumns() {
+        const searchBy: Column<T>[] = []
+
+        if (!this.query.searchBy || this.config.ignoreSearchByInQueryParam) {
+            searchBy.push(...this.config.searchableColumns)
+            return searchBy
+        }
+
+        for (const column of this.query.searchBy) {
+            if (isEntityKey(this.config.searchableColumns, column)) {
+                searchBy.push(column)
+            }
+        }
+
+        return searchBy
+    }
+
+    applySearch() {
+        const searchableColumns: Column<T>[] = this.getSearchableColumns()
+
+        if (!this.query.search || !searchableColumns.length) return
+
+        this.queryBuilder.andWhere(
+            new Brackets((qb: SelectQueryBuilder<T>) => {
+                for (const column of searchableColumns) {
+                    const property = getPropertiesByColumnName(column)
+                    const { isVirtualProperty, query: virtualQuery } = extractVirtualProperty(qb, property)
+                    const isRelation = checkIsRelation(qb, property.propertyPath)
+                    const isEmbedded = checkIsEmbedded(qb, property.propertyPath)
+
+                    const alias = fixColumnAlias(
+                        property,
+                        qb.alias,
+                        isRelation,
+                        isVirtualProperty,
+                        isEmbedded,
+                        virtualQuery
+                    )
+
+                    const condition: WherePredicateOperator = {
+                        operator: 'ilike',
+                        parameters: [alias, `:${property.column}`],
+                    }
+
+                    if (['postgres', 'cockroachdb'].includes(this.queryBuilder.connection.options.type)) {
+                        condition.parameters[0] = `CAST(${condition.parameters[0]} AS text)`
+                    }
+
+                    qb.orWhere(qb['createWhereConditionExpression'](condition), {
+                        [property.column]: `%${this.query.search}%`,
+                    })
+                }
+            })
+        )
+    }
+
     async getPaginatedResponse(): Promise<Paginated<T>> {
-        const response = new Paginated<T>()
+        const items = await this.queryBuilder.getMany()
+        const totalItems = await this.queryBuilder.clone().skip(0).take(Infinity).getCount()
 
-        response.data = await this.queryBuilder.getMany()
+        const limit = this.paginationLimit
+        const page = positiveNumberOrDefault(this.query.page, 1, 1)
+        const selectParams = this.config.select
+        // const searchBy = this.config.searchBy
+        const isQuerySelected = selectParams && selectParams.length > 0
+        const isPaginated = this.isPaginated
 
-        return response
+        const response: Paginated<T> = {
+            data: items,
+
+            meta: {
+                itemsPerPage: limit === PaginationLimit.COUNTER_ONLY ? totalItems : isPaginated ? limit : items.length,
+                totalItems: limit === PaginationLimit.COUNTER_ONLY || isPaginated ? totalItems : items.length,
+                currentPage: page,
+            } as any,
+        } as any
+
+        return Object.assign(new Paginated(), response)
     }
 }
