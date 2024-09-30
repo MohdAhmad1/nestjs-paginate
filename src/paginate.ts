@@ -267,6 +267,8 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     private getSearchableColumns() {
         const searchBy: Column<T>[] = []
 
+        if (!this.config.searchableColumns?.length) return searchBy
+
         if (!this.query.searchBy || this.config.ignoreSearchByInQueryParam) {
             searchBy.push(...this.config.searchableColumns)
             return searchBy
