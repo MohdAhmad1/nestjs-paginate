@@ -1,5 +1,5 @@
 import { applyDecorators, Type } from '@nestjs/common'
-import { PaginateConfig } from '../paginate'
+import { PaginateConfig } from '../types'
 import { ApiPaginationQuery } from './api-paginated-query.decorator'
 import { ApiOkPaginatedResponse } from './api-ok-paginated-response.decorator'
 

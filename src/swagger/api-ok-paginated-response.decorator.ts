@@ -1,7 +1,7 @@
 import { applyDecorators, Type } from '@nestjs/common'
 import { ApiExtraModels, ApiOkResponse, getSchemaPath } from '@nestjs/swagger'
 import { ReferenceObject, SchemaObject } from '@nestjs/swagger/dist/interfaces/open-api-spec.interface'
-import { PaginateConfig } from '../paginate'
+import { PaginateConfig } from '../types'
 import { PaginatedDocumented } from './paginated-swagger.type'
 
 export const ApiOkPaginatedResponse = <DTO extends Type<unknown>>(

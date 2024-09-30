@@ -1,7 +1,7 @@
 import { applyDecorators } from '@nestjs/common'
 import { ApiQuery } from '@nestjs/swagger'
-import { FilterComparator } from '../filter'
-import { FilterOperator, FilterSuffix, PaginateConfig, PaginationLimit } from '../paginate'
+import { FilterComparator, FilterOperator, FilterSuffix } from '../filter'
+import { PaginateConfig, PaginationLimit } from '../types'
 
 const DEFAULT_VALUE_KEY = 'Default Value'
 
