@@ -113,7 +113,7 @@ export class NestJsPaginate<T extends ObjectLiteral> {
             selectParams = this.config.select
         }
 
-        const cols: string[] = selectParams.reduce((cols, currentCol) => {
+        const cols: string[] = selectParams?.reduce((cols, currentCol) => {
             const columnProperties = getPropertiesByColumnName(currentCol)
             const isRelation = checkIsRelation(this.queryBuilder, columnProperties.propertyPath)
             cols.push(fixColumnAlias(columnProperties, this.queryBuilder.alias, isRelation))
