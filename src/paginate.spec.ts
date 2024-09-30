@@ -228,7 +228,7 @@ describe('paginate', () => {
         const result = await paginate<CatEntity>(query, catRepo, config)
 
         expect(result).toBeInstanceOf(Paginated)
-        expect(result.data).toStrictEqual(cats)
+        expect(result.data).toStrictEqual(cats.slice(0, 1))
     })
 
     it('should accept a query builder', async () => {

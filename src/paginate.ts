@@ -214,12 +214,12 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     private get isPaginated() {
         const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
 
-        if (this.query.limit === PaginationLimit.COUNTER_ONLY) return true
+        if (this.query.limit === PaginationLimit.COUNTER_ONLY) return false
 
         if (this.query.limit === PaginationLimit.NO_PAGINATION && maxLimit === PaginationLimit.NO_PAGINATION)
-            return true
+            return false
 
-        return false
+        return true
     }
 
     private get paginationLimit() {
