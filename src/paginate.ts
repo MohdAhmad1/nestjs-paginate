@@ -18,6 +18,7 @@ import {
     fixColumnAlias,
     generateWhereStatement,
     getPropertiesByColumnName,
+    getQueryUrlComponents,
     includesAllPrimaryKeyColumns,
     isEntityKey,
     isRepository,
@@ -28,6 +29,8 @@ import {
 } from './helper'
 import { PaginateConfig, Paginated, PaginationLimit, PaginationType } from './types'
 import { WherePredicateOperator } from 'typeorm/query-builder/WhereClause'
+import { stringify } from 'querystring'
+import { mapKeys } from 'lodash'
 
 const logger: Logger = new Logger('nestjs-paginate')
 
@@ -47,6 +50,9 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     private readonly config: PaginateConfig<T>
     private readonly query: PaginateQuery
     private readonly _queryBuilder: SelectQueryBuilder<T>
+    private searchableColumns: Column<T>[] = []
+    private sortableColumns: SortBy<T> = []
+    private selectableColumns: (Column<T> | (string & {}))[] = undefined
 
     constructor(repo: Repository<T> | SelectQueryBuilder<T>, query: PaginateQuery, config: PaginateConfig<T>) {
         const queryBuilder = this.initialize(repo, config)
@@ -54,6 +60,9 @@ export class NestJsPaginate<T extends ObjectLiteral> {
         this.config = config
         this.query = query
         this._queryBuilder = queryBuilder
+
+        this.getSearchableColumns()
+        this.getSortableColumns()
     }
 
     public get queryBuilder() {
@@ -122,6 +131,12 @@ export class NestJsPaginate<T extends ObjectLiteral> {
             selectParams = this.config.select
         }
 
+        this.selectableColumns = selectParams
+
+        if (!includesAllPrimaryKeyColumns(this.queryBuilder, selectParams)) {
+            return this
+        }
+
         const cols: string[] = selectParams?.reduce((cols, currentCol) => {
             const columnProperties = getPropertiesByColumnName(currentCol)
             const isRelation = checkIsRelation(this.queryBuilder, columnProperties.propertyPath)
@@ -129,7 +144,9 @@ export class NestJsPaginate<T extends ObjectLiteral> {
             return cols
         }, [])
 
-        this.queryBuilder.select(cols)
+        if (cols) {
+            this.queryBuilder.select(cols)
+        }
 
         return this
     }
@@ -142,28 +159,8 @@ export class NestJsPaginate<T extends ObjectLiteral> {
         return this
     }
 
-    applySorting() {
-        const dbType = this.queryBuilder.connection.options.type
-        const isMariaDbOrMySql = (dbType: string) => dbType === 'mariadb' || dbType === 'mysql'
-        const isMMDb = isMariaDbOrMySql(dbType)
-
+    private getSortableColumns() {
         const sortBy = [] as SortBy<T>
-
-        let nullSort: string | undefined
-
-        if (this.config.nullSort) {
-            if (isMMDb) {
-                nullSort = this.config.nullSort === 'last' ? 'IS NULL' : 'IS NOT NULL'
-            } else {
-                nullSort = this.config.nullSort === 'last' ? 'NULLS LAST' : 'NULLS FIRST'
-            }
-        }
-
-        if (this.config.sortableColumns.length < 1) {
-            const message = "Missing required 'sortableColumns' config."
-            logger.debug(message)
-            throw new ServiceUnavailableException(message)
-        }
 
         // Add provided sort by columns
         this.query.sortBy?.forEach((order) => {
@@ -182,7 +179,31 @@ export class NestJsPaginate<T extends ObjectLiteral> {
             sortBy.push(defaultSortBy[0])
         }
 
-        for (const order of sortBy) {
+        this.sortableColumns = sortBy
+    }
+
+    applySorting() {
+        const dbType = this.queryBuilder.connection.options.type
+        const isMariaDbOrMySql = (dbType: string) => dbType === 'mariadb' || dbType === 'mysql'
+        const isMMDb = isMariaDbOrMySql(dbType)
+
+        let nullSort: string | undefined
+
+        if (this.config.nullSort) {
+            if (isMMDb) {
+                nullSort = this.config.nullSort === 'last' ? 'IS NULL' : 'IS NOT NULL'
+            } else {
+                nullSort = this.config.nullSort === 'last' ? 'NULLS LAST' : 'NULLS FIRST'
+            }
+        }
+
+        if (this.config.sortableColumns.length < 1) {
+            const message = "Missing required 'sortableColumns' config."
+            logger.debug(message)
+            throw new ServiceUnavailableException(message)
+        }
+
+        for (const order of this.sortableColumns) {
             const columnProperties = getPropertiesByColumnName(order[0])
             const { isVirtualProperty } = extractVirtualProperty(this.queryBuilder, columnProperties)
             const isRelation = checkIsRelation(this.queryBuilder, columnProperties.propertyPath)
@@ -265,32 +286,26 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     }
 
     private getSearchableColumns() {
-        const searchBy: Column<T>[] = []
-
-        if (!this.config.searchableColumns?.length) return searchBy
+        if (!this.config.searchableColumns?.length) return
 
         if (!this.query.searchBy || this.config.ignoreSearchByInQueryParam) {
-            searchBy.push(...this.config.searchableColumns)
-            return searchBy
+            this.searchableColumns.push(...this.config.searchableColumns)
+            return
         }
 
         for (const column of this.query.searchBy) {
             if (isEntityKey(this.config.searchableColumns, column)) {
-                searchBy.push(column)
+                this.searchableColumns.push(column)
             }
         }
-
-        return searchBy
     }
 
     applySearch() {
-        const searchableColumns: Column<T>[] = this.getSearchableColumns()
-
-        if (!this.query.search || !searchableColumns.length) return
+        if (!this.query.search || !this.searchableColumns.length) return
 
         this.queryBuilder.andWhere(
             new Brackets((qb: SelectQueryBuilder<T>) => {
-                for (const column of searchableColumns) {
+                for (const column of this.searchableColumns) {
                     const property = getPropertiesByColumnName(column)
                     const { isVirtualProperty, query: virtualQuery } = extractVirtualProperty(qb, property)
                     const isRelation = checkIsRelation(qb, property.propertyPath)
@@ -323,26 +338,87 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     }
 
     async getPaginatedResponse(): Promise<Paginated<T>> {
-        const items = await this.queryBuilder.getMany()
-        const totalItems = await this.queryBuilder.clone().skip(0).take(Infinity).getCount()
+        let [items, totalItems]: [T[], number] = [[], 0]
 
         const limit = this.paginationLimit
-        const page = positiveNumberOrDefault(this.query.page, 1, 1)
-        const selectParams = this.config.select
-        // const searchBy = this.config.searchBy
-        const isQuerySelected = selectParams && selectParams.length > 0
+        const page = this.query.page > 0 ? this.query.page : 1
         const isPaginated = this.isPaginated
 
-        const response: Paginated<T> = {
-            data: items,
+        if (this.query.limit === PaginationLimit.COUNTER_ONLY) {
+            totalItems = await this.queryBuilder.getCount()
+        } else if (isPaginated) {
+            ;[items, totalItems] = await this.queryBuilder.getManyAndCount()
+        } else {
+            items = await this.queryBuilder.getMany()
+        }
 
+        const sortByQuery = this.sortableColumns?.map((order) => `&sortBy=${order.join(':')}`).join('')
+        const searchQuery = this.query.search ? `&search=${this.query.search}` : ''
+
+        const searchByQuery =
+            this.query.searchBy?.length && !this.config.ignoreSearchByInQueryParam
+                ? this.searchableColumns.map((column) => `&searchBy=${column}`).join('')
+                : ''
+
+        // Only expose select in meta data if query select differs from config select
+        const isQuerySelected =
+            this.selectableColumns?.length !== this.config.select?.length && !this.config.ignoreSelectInQueryParam
+        const selectQuery = isQuerySelected ? `&select=${this.selectableColumns?.join(',')}` : ''
+
+        const filterQuery = this.query.filter
+            ? '&' +
+              stringify(
+                  mapKeys(this.query.filter, (_param, name) => 'filter.' + name),
+                  '&',
+                  '=',
+                  { encodeURIComponent: (str) => str }
+              )
+            : ''
+
+        const options = `&limit=${limit}${sortByQuery}${searchQuery}${searchByQuery}${selectQuery}${filterQuery}`
+
+        let path: string = null
+        if (this.query.path !== null) {
+            // `query.path` does not exist in RPC/WS requests and is set to null then.
+            const { queryOrigin, queryPath } = getQueryUrlComponents(this.query.path)
+            if (this.config.relativePath) {
+                path = queryPath
+            } else if (this.config.origin) {
+                path = this.config.origin + queryPath
+            } else {
+                path = queryOrigin + queryPath
+            }
+        }
+        const buildLink = (p: number): string => path + '?page=' + p + options
+
+        const totalPages = this.isPaginated ? Math.ceil(totalItems / limit) : 1
+
+        const results: Paginated<T> = {
+            data: items,
             meta: {
                 itemsPerPage: limit === PaginationLimit.COUNTER_ONLY ? totalItems : isPaginated ? limit : items.length,
                 totalItems: limit === PaginationLimit.COUNTER_ONLY || isPaginated ? totalItems : items.length,
                 currentPage: page,
-            } as any,
-        } as any
+                totalPages,
+                sortBy: this.sortableColumns,
+                search: this.query.search,
+                searchBy: this.query.search ? this.searchableColumns : undefined,
+                select: isQuerySelected ? this.selectableColumns : undefined,
+                filter: this.query.filter,
+            },
+            // If there is no `path`, don't build links.
+            links:
+                path !== null
+                    ? {
+                          first: page == 1 ? undefined : buildLink(1),
+                          previous: page - 1 < 1 ? undefined : buildLink(page - 1),
+                          current: buildLink(page),
+                          next: page + 1 > totalPages ? undefined : buildLink(page + 1),
+                          last: page == totalPages || !totalItems ? undefined : buildLink(totalPages),
+                      }
+                    : ({} as Paginated<T>['links']),
+        }
 
-        return Object.assign(new Paginated(), response)
+        return Object.assign(new Paginated(), results)
     }
 }

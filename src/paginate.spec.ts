@@ -575,7 +575,7 @@ describe('paginate', () => {
             search: 'Pluto',
         }
 
-        const { links } = await paginate<CatEntity>(query, catRepo, config)
+        const { links, data, meta } = await paginate<CatEntity>(query, catRepo, config)
 
         expect(links.first).toBe(undefined)
         expect(links.previous).toBe(undefined)
