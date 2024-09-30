@@ -9,6 +9,7 @@ import {
     extractVirtualProperty,
     fixColumnAlias,
     generateWhereStatement,
+    getPaginationLimit,
     getPropertiesByColumnName,
     includesAllPrimaryKeyColumns,
     isEntityKey,
@@ -34,42 +35,21 @@ export async function paginate<T extends ObjectLiteral>(
     return queryBuilder.getPaginatedResponse()
 }
 
-function getPaginationLimit<T extends ObjectLiteral>(
-    query: PaginateQuery,
-    isPaginated: boolean,
-    config: PaginateConfig<T>
-) {
-    const defaultLimit = config.defaultLimit || PaginationLimit.DEFAULT_LIMIT
-    const maxLimit = config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
-
-    if (query.limit === PaginationLimit.COUNTER_ONLY) {
-        return PaginationLimit.COUNTER_ONLY
-    }
-
-    if (!isPaginated) return defaultLimit
-
-    if (maxLimit === PaginationLimit.NO_PAGINATION) {
-        return query.limit ?? defaultLimit
-    }
-
-    if (query.limit === PaginationLimit.NO_PAGINATION) {
-        return defaultLimit
-    }
-
-    return Math.min(query.limit ?? defaultLimit, maxLimit)
-}
-
 export class NestJsPaginate<T extends ObjectLiteral> {
-    private config: PaginateConfig<T>
-    private query: PaginateQuery
-    private queryBuilder: SelectQueryBuilder<T>
+    private readonly config: PaginateConfig<T>
+    private readonly query: PaginateQuery
+    private readonly _queryBuilder: SelectQueryBuilder<T>
 
     constructor(repo: Repository<T> | SelectQueryBuilder<T>, query: PaginateQuery, config: PaginateConfig<T>) {
         const queryBuilder = this.initialize(repo, config)
 
         this.config = config
         this.query = query
-        this.queryBuilder = queryBuilder
+        this._queryBuilder = queryBuilder
+    }
+
+    public get queryBuilder() {
+        return this._queryBuilder
     }
 
     private initialize(repo: Repository<T> | SelectQueryBuilder<T>, config: PaginateConfig<T>) {
@@ -127,7 +107,7 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     applyColumnsSelection() {
         let selectParams =
             this.config.select && this.query.select && !this.config.ignoreSelectInQueryParam
-                ? this.config.select.filter((column) => query.select.includes(column))
+                ? this.config.select.filter((column) => this.query.select.includes(column))
                 : this.config.select
 
         if (!includesAllPrimaryKeyColumns(this.queryBuilder, this.query.select)) {
