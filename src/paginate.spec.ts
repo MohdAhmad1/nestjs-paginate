@@ -20,7 +20,8 @@ import {
     isSuffix,
     parseFilterToken,
 } from './filter'
-import { PaginateConfig, Paginated, PaginationLimit, paginate } from './paginate'
+import { paginate } from './paginate'
+import { PaginateConfig, Paginated, PaginationLimit } from './types'
 
 const isoStringToDate = (isoString) => new Date(isoString)
 

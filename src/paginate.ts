@@ -9,7 +9,6 @@ import {
     extractVirtualProperty,
     fixColumnAlias,
     generateWhereStatement,
-    getPaginationLimit,
     getPropertiesByColumnName,
     includesAllPrimaryKeyColumns,
     isEntityKey,
@@ -157,64 +156,99 @@ export class NestJsPaginate<T extends ObjectLiteral> {
             throw new ServiceUnavailableException(message)
         }
 
-        if (this.query.sortBy) {
-            for (const order of this.query.sortBy) {
-                if (isEntityKey(this.config.sortableColumns, order[0]) && ['ASC', 'DESC'].includes(order[1])) {
-                    sortBy.push(order as Order<T>)
-                }
-            }
-        }
+        // Add provided sort by columns
+        this.query.sortBy?.forEach((order) => {
+            const isValidColumn = isEntityKey(this.config.sortableColumns, order[0])
+
+            const isValidSortBy = ['ASC', 'DESC'].includes(order[1].toUpperCase())
+
+            if (!isValidColumn && isValidSortBy) return
+
+            sortBy.push(order as Order<T>)
+        })
 
         if (!sortBy.length) {
-            sortBy.push(...(this.config.defaultSortBy || [[this.config.sortableColumns[0], 'ASC']]))
+            const defaultSortBy = this.config.defaultSortBy || [[this.config.sortableColumns[0], 'ASC']]
+
+            sortBy.push(defaultSortBy[0])
         }
 
         for (const order of sortBy) {
             const columnProperties = getPropertiesByColumnName(order[0])
             const { isVirtualProperty } = extractVirtualProperty(this.queryBuilder, columnProperties)
             const isRelation = checkIsRelation(this.queryBuilder, columnProperties.propertyPath)
-            const isEmbeded = checkIsEmbedded(this.queryBuilder, columnProperties.propertyPath)
+            const isEmbedded = checkIsEmbedded(this.queryBuilder, columnProperties.propertyPath)
 
             let alias = fixColumnAlias(
                 columnProperties,
                 this.queryBuilder.alias,
                 isRelation,
                 isVirtualProperty,
-                isEmbeded
+                isEmbedded
             )
 
             if (isMMDb) {
                 if (isVirtualProperty) {
                     alias = `\`${alias}\``
                 }
+
                 if (nullSort) {
                     this.queryBuilder.addOrderBy(`${alias} ${nullSort}`)
                 }
+
                 this.queryBuilder.addOrderBy(alias, order[1])
-            } else {
-                if (isVirtualProperty) {
-                    alias = `"${alias}"`
-                }
-                this.queryBuilder.addOrderBy(alias, order[1], nullSort as 'NULLS FIRST' | 'NULLS LAST' | undefined)
+
+                continue
             }
+
+            if (isVirtualProperty) {
+                alias = `"${alias}"`
+            }
+
+            this.queryBuilder.addOrderBy(alias, order[1], nullSort as 'NULLS FIRST' | 'NULLS LAST' | undefined)
         }
 
         return this
     }
 
+    private get isPaginated() {
+        const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
+
+        if (this.query.limit === PaginationLimit.COUNTER_ONLY) return true
+
+        if (this.query.limit === PaginationLimit.NO_PAGINATION && maxLimit === PaginationLimit.NO_PAGINATION)
+            return true
+
+        return false
+    }
+
+    private get paginationLimit() {
+        const defaultLimit = this.config.defaultLimit || PaginationLimit.DEFAULT_LIMIT
+        const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
+
+        if (this.query.limit === PaginationLimit.COUNTER_ONLY) {
+            return PaginationLimit.COUNTER_ONLY
+        }
+
+        if (!this.isPaginated) return defaultLimit
+
+        if (maxLimit === PaginationLimit.NO_PAGINATION) {
+            return this.query.limit ?? defaultLimit
+        }
+
+        if (this.query.limit === PaginationLimit.NO_PAGINATION) {
+            return defaultLimit
+        }
+
+        return Math.min(this.query.limit ?? defaultLimit, maxLimit)
+    }
+
     applyPagination() {
         const page = positiveNumberOrDefault(this.query.page, 1, 1)
 
-        const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
+        const limit = this.paginationLimit
 
-        const isPaginated = !(
-            this.query.limit === PaginationLimit.COUNTER_ONLY ||
-            (this.query.limit === PaginationLimit.NO_PAGINATION && maxLimit === PaginationLimit.NO_PAGINATION)
-        )
-
-        const limit = getPaginationLimit(this.query, true, this.config)
-
-        if (!isPaginated) return this
+        if (!this.isPaginated) return this
 
         // Allow user to choose between limit/offset and take/skip.
         // However, using limit/offset can cause problems when joining one-to-many etc.

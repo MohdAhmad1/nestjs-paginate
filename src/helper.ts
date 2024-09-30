@@ -330,28 +330,3 @@ export function flattenWhereAndTransform<T>(
         }
     })
 }
-
-export function getPaginationLimit<T extends ObjectLiteral>(
-    query: PaginateQuery,
-    isPaginated: boolean,
-    config: PaginateConfig<T>
-) {
-    const defaultLimit = config.defaultLimit || PaginationLimit.DEFAULT_LIMIT
-    const maxLimit = config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
-
-    if (query.limit === PaginationLimit.COUNTER_ONLY) {
-        return PaginationLimit.COUNTER_ONLY
-    }
-
-    if (!isPaginated) return defaultLimit
-
-    if (maxLimit === PaginationLimit.NO_PAGINATION) {
-        return query.limit ?? defaultLimit
-    }
-
-    if (query.limit === PaginationLimit.NO_PAGINATION) {
-        return defaultLimit
-    }
-
-    return Math.min(query.limit ?? defaultLimit, maxLimit)
-}
