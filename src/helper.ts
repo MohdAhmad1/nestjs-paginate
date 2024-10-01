@@ -2,6 +2,7 @@ import { FindOperator, FindOptionsWhere, ObjectLiteral, Repository, SelectQueryB
 import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata'
 import { PaginateQuery } from './decorator'
 import { PaginateConfig, PaginationLimit } from './types'
+import { Logger } from '@nestjs/common'
 
 /**
  * Joins 2 keys as `K`, `K.P`, `K.(P` or `K.P)`
@@ -330,3 +331,5 @@ export function flattenWhereAndTransform<T>(
         }
     })
 }
+
+export const logger: Logger = new Logger('nestjs-paginate')

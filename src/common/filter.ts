@@ -16,7 +16,7 @@ import {
     SelectQueryBuilder,
 } from 'typeorm'
 import { WherePredicateOperator } from 'typeorm/query-builder/WhereClause'
-import { PaginateQuery } from './decorator'
+import { PaginateQuery } from '../decorator'
 import {
     checkIsArray,
     checkIsEmbedded,
@@ -25,7 +25,7 @@ import {
     fixColumnAlias,
     getPropertiesByColumnName,
     isISODate,
-} from './helper'
+} from '../helper'
 
 export enum FilterOperator {
     EQ = '$eq',

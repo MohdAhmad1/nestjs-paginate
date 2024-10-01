@@ -1,6 +1,6 @@
 import { FindOptionsRelationByString, FindOptionsRelations, FindOptionsWhere } from 'typeorm'
 import { Column, RelationColumn, SortBy } from './helper'
-import { FilterOperator, FilterSuffix } from './filter'
+import { FilterOperator, FilterSuffix } from './common/filter'
 
 export class Paginated<T> {
     data: T[]

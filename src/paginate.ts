@@ -9,7 +9,7 @@ import {
 } from 'typeorm'
 import { OrmUtils } from 'typeorm/util/OrmUtils'
 import { PaginateQuery } from './decorator'
-import { addFilter } from './filter'
+import { addFilter } from './common/filter'
 import {
     checkIsEmbedded,
     checkIsRelation,
@@ -22,6 +22,7 @@ import {
     includesAllPrimaryKeyColumns,
     isEntityKey,
     isRepository,
+    logger,
     Order,
     positiveNumberOrDefault,
     RelationColumn,
@@ -31,8 +32,7 @@ import { PaginateConfig, Paginated, PaginationLimit, PaginationType } from './ty
 import { WherePredicateOperator } from 'typeorm/query-builder/WhereClause'
 import { stringify } from 'querystring'
 import { mapKeys } from 'lodash'
-
-const logger: Logger = new Logger('nestjs-paginate')
+import { addSort } from './common/sort'
 
 export async function paginate<T extends ObjectLiteral>(
     query: PaginateQuery,
@@ -47,12 +47,13 @@ export async function paginate<T extends ObjectLiteral>(
 }
 
 export class NestJsPaginate<T extends ObjectLiteral> {
-    private readonly config: PaginateConfig<T>
-    private readonly query: PaginateQuery
-    private readonly _queryBuilder: SelectQueryBuilder<T>
-    private searchableColumns: Column<T>[] = []
-    private sortableColumns: SortBy<T> = []
-    private selectableColumns: (Column<T> | (string & {}))[] = undefined
+    public readonly config: PaginateConfig<T>
+    public readonly query: PaginateQuery
+    public readonly _queryBuilder: SelectQueryBuilder<T>
+    public readonly searchableColumns: Column<T>[] = []
+    public readonly sortableColumns: SortBy<T> = []
+    // eslint-disable-next-line @typescript-eslint/ban-types
+    public selectableColumns: (Column<T> | (string & {}))[] = undefined
 
     constructor(repo: Repository<T> | SelectQueryBuilder<T>, query: PaginateQuery, config: PaginateConfig<T>) {
         const queryBuilder = this.initialize(repo, config)
@@ -65,9 +66,38 @@ export class NestJsPaginate<T extends ObjectLiteral> {
         this.getSortableColumns()
     }
 
+    // Getters
     public get queryBuilder() {
         return this._queryBuilder
     }
+
+    private get isPaginated() {
+        const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
+
+        if (this.query.limit === PaginationLimit.COUNTER_ONLY) return false
+
+        if (this.query.limit === PaginationLimit.NO_PAGINATION && maxLimit === PaginationLimit.NO_PAGINATION)
+            return false
+
+        return true
+    }
+
+    private get paginationLimit() {
+        if (this.query.limit === PaginationLimit.COUNTER_ONLY) return PaginationLimit.COUNTER_ONLY
+
+        const defaultLimit = this.config.defaultLimit || PaginationLimit.DEFAULT_LIMIT
+        const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
+
+        if (!this.isPaginated) return defaultLimit
+
+        if (maxLimit === PaginationLimit.NO_PAGINATION) return this.query.limit ?? defaultLimit
+
+        if (this.query.limit === PaginationLimit.NO_PAGINATION) return defaultLimit
+
+        return Math.min(this.query.limit ?? defaultLimit, maxLimit)
+    }
+
+    // Methods
 
     private initialize(repo: Repository<T> | SelectQueryBuilder<T>, config: PaginateConfig<T>) {
         const queryBuilder = isRepository(repo) ? repo.createQueryBuilder('__root') : repo
@@ -137,14 +167,14 @@ export class NestJsPaginate<T extends ObjectLiteral> {
             return this
         }
 
-        const cols: string[] = selectParams?.reduce((cols, currentCol) => {
+        const cols: string[] = this.selectableColumns.reduce((cols, currentCol) => {
             const columnProperties = getPropertiesByColumnName(currentCol)
             const isRelation = checkIsRelation(this.queryBuilder, columnProperties.propertyPath)
             cols.push(fixColumnAlias(columnProperties, this.queryBuilder.alias, isRelation))
             return cols
         }, [])
 
-        if (cols) {
+        if (cols.length) {
             this.queryBuilder.select(cols)
         }
 
@@ -160,8 +190,6 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     }
 
     private getSortableColumns() {
-        const sortBy = [] as SortBy<T>
-
         // Add provided sort by columns
         this.query.sortBy?.forEach((order) => {
             const isValidColumn = isEntityKey(this.config.sortableColumns, order[0])
@@ -170,101 +198,20 @@ export class NestJsPaginate<T extends ObjectLiteral> {
 
             if (!isValidColumn && isValidSortBy) return
 
-            sortBy.push(order as Order<T>)
+            this.sortableColumns.push(order as Order<T>)
         })
 
-        if (!sortBy.length) {
+        if (!this.sortableColumns.length) {
             const defaultSortBy = this.config.defaultSortBy || [[this.config.sortableColumns[0], 'ASC']]
 
-            sortBy.push(defaultSortBy[0])
+            this.sortableColumns.push(defaultSortBy[0])
         }
-
-        this.sortableColumns = sortBy
     }
 
     applySorting() {
-        const dbType = this.queryBuilder.connection.options.type
-        const isMariaDbOrMySql = (dbType: string) => dbType === 'mariadb' || dbType === 'mysql'
-        const isMMDb = isMariaDbOrMySql(dbType)
-
-        let nullSort: string | undefined
-
-        if (this.config.nullSort) {
-            if (isMMDb) {
-                nullSort = this.config.nullSort === 'last' ? 'IS NULL' : 'IS NOT NULL'
-            } else {
-                nullSort = this.config.nullSort === 'last' ? 'NULLS LAST' : 'NULLS FIRST'
-            }
-        }
-
-        if (this.config.sortableColumns.length < 1) {
-            const message = "Missing required 'sortableColumns' config."
-            logger.debug(message)
-            throw new ServiceUnavailableException(message)
-        }
-
-        for (const order of this.sortableColumns) {
-            const columnProperties = getPropertiesByColumnName(order[0])
-            const { isVirtualProperty } = extractVirtualProperty(this.queryBuilder, columnProperties)
-            const isRelation = checkIsRelation(this.queryBuilder, columnProperties.propertyPath)
-            const isEmbedded = checkIsEmbedded(this.queryBuilder, columnProperties.propertyPath)
-
-            let alias = fixColumnAlias(
-                columnProperties,
-                this.queryBuilder.alias,
-                isRelation,
-                isVirtualProperty,
-                isEmbedded
-            )
-
-            if (isMMDb) {
-                if (isVirtualProperty) {
-                    alias = `\`${alias}\``
-                }
-
-                if (nullSort) {
-                    this.queryBuilder.addOrderBy(`${alias} ${nullSort}`)
-                }
-
-                this.queryBuilder.addOrderBy(alias, order[1])
-
-                continue
-            }
-
-            if (isVirtualProperty) {
-                alias = `"${alias}"`
-            }
-
-            this.queryBuilder.addOrderBy(alias, order[1], nullSort as 'NULLS FIRST' | 'NULLS LAST' | undefined)
-        }
+        addSort(this)
 
         return this
-    }
-
-    private get isPaginated() {
-        const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
-
-        if (this.query.limit === PaginationLimit.COUNTER_ONLY) return false
-
-        if (this.query.limit === PaginationLimit.NO_PAGINATION && maxLimit === PaginationLimit.NO_PAGINATION)
-            return false
-
-        return true
-    }
-
-    private get paginationLimit() {
-        if (this.query.limit === PaginationLimit.COUNTER_ONLY) return PaginationLimit.COUNTER_ONLY
-
-        const defaultLimit = this.config.defaultLimit || PaginationLimit.DEFAULT_LIMIT
-        const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
-
-        if (!this.isPaginated) return defaultLimit
-
-        if (maxLimit === PaginationLimit.NO_PAGINATION) return this.query.limit ?? defaultLimit
-
-        if (this.query.limit === PaginationLimit.NO_PAGINATION) return defaultLimit
-
-        return Math.min(this.query.limit ?? defaultLimit, maxLimit)
     }
 
     applyPagination() {

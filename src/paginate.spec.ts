@@ -19,7 +19,7 @@ import {
     isOperator,
     isSuffix,
     parseFilterToken,
-} from './filter'
+} from './common/filter'
 import { paginate } from './paginate'
 import { PaginateConfig, Paginated, PaginationLimit } from './types'
 
