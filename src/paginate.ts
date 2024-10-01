@@ -33,6 +33,7 @@ import { WherePredicateOperator } from 'typeorm/query-builder/WhereClause'
 import { stringify } from 'querystring'
 import { mapKeys } from 'lodash'
 import { addSort } from './common/sort'
+import { buildLinks } from './common/linkBuilder'
 
 export async function paginate<T extends ObjectLiteral>(
     query: PaginateQuery,
@@ -54,6 +55,8 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     public readonly sortableColumns: SortBy<T> = []
     // eslint-disable-next-line @typescript-eslint/ban-types
     public selectableColumns: (Column<T> | (string & {}))[] = undefined
+    private readonly _isPaginated: boolean
+    private readonly _paginationLimit: number
 
     constructor(repo: Repository<T> | SelectQueryBuilder<T>, query: PaginateQuery, config: PaginateConfig<T>) {
         const queryBuilder = this.initialize(repo, config)
@@ -64,6 +67,9 @@ export class NestJsPaginate<T extends ObjectLiteral> {
 
         this.getSearchableColumns()
         this.getSortableColumns()
+
+        this._isPaginated = this.getIsPaginated()
+        this._paginationLimit = this.getPaginationLimit()
     }
 
     // Getters
@@ -71,34 +77,19 @@ export class NestJsPaginate<T extends ObjectLiteral> {
         return this._queryBuilder
     }
 
-    private get isPaginated() {
-        const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
-
-        if (this.query.limit === PaginationLimit.COUNTER_ONLY) return false
-
-        if (this.query.limit === PaginationLimit.NO_PAGINATION && maxLimit === PaginationLimit.NO_PAGINATION)
-            return false
-
-        return true
+    public get isPaginated() {
+        return this._isPaginated
     }
 
-    private get paginationLimit() {
-        if (this.query.limit === PaginationLimit.COUNTER_ONLY) return PaginationLimit.COUNTER_ONLY
-
-        const defaultLimit = this.config.defaultLimit || PaginationLimit.DEFAULT_LIMIT
-        const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
-
-        if (!this.isPaginated) return defaultLimit
-
-        if (maxLimit === PaginationLimit.NO_PAGINATION) return this.query.limit ?? defaultLimit
-
-        if (this.query.limit === PaginationLimit.NO_PAGINATION) return defaultLimit
-
-        return Math.min(this.query.limit ?? defaultLimit, maxLimit)
+    public get paginationLimit() {
+        return this._paginationLimit
     }
 
-    // Methods
+    public get isQuerySelected() {
+        return this.selectableColumns?.length !== this.config.select?.length && !this.config.ignoreSelectInQueryParam
+    }
 
+    // Initializers
     private initialize(repo: Repository<T> | SelectQueryBuilder<T>, config: PaginateConfig<T>) {
         const queryBuilder = isRepository(repo) ? repo.createQueryBuilder('__root') : repo
 
@@ -151,6 +142,68 @@ export class NestJsPaginate<T extends ObjectLiteral> {
         return queryBuilder
     }
 
+    private getSortableColumns() {
+        // Add provided sort by columns
+        this.query.sortBy?.forEach((order) => {
+            const isValidColumn = isEntityKey(this.config.sortableColumns, order[0])
+
+            const isValidSortBy = ['ASC', 'DESC'].includes(order[1].toUpperCase())
+
+            if (!isValidColumn && isValidSortBy) return
+
+            this.sortableColumns.push(order as Order<T>)
+        })
+
+        if (!this.sortableColumns.length) {
+            const defaultSortBy = this.config.defaultSortBy || [[this.config.sortableColumns[0], 'ASC']]
+
+            this.sortableColumns.push(defaultSortBy[0])
+        }
+    }
+
+    private getSearchableColumns() {
+        if (!this.config.searchableColumns?.length) return
+
+        if (!this.query.searchBy || this.config.ignoreSearchByInQueryParam) {
+            this.searchableColumns.push(...this.config.searchableColumns)
+            return
+        }
+
+        for (const column of this.query.searchBy) {
+            if (isEntityKey(this.config.searchableColumns, column)) {
+                this.searchableColumns.push(column)
+            }
+        }
+    }
+
+    private getIsPaginated() {
+        const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
+
+        if (this.query.limit === PaginationLimit.COUNTER_ONLY) return false
+
+        if (this.query.limit === PaginationLimit.NO_PAGINATION && maxLimit === PaginationLimit.NO_PAGINATION)
+            return false
+
+        return true
+    }
+
+    private getPaginationLimit() {
+        if (this.query.limit === PaginationLimit.COUNTER_ONLY) return PaginationLimit.COUNTER_ONLY
+
+        const defaultLimit = this.config.defaultLimit || PaginationLimit.DEFAULT_LIMIT
+        const maxLimit = this.config.maxLimit || PaginationLimit.DEFAULT_MAX_LIMIT
+
+        if (!this.isPaginated) return defaultLimit
+
+        if (maxLimit === PaginationLimit.NO_PAGINATION) return this.query.limit ?? defaultLimit
+
+        if (this.query.limit === PaginationLimit.NO_PAGINATION) return defaultLimit
+
+        return Math.min(this.query.limit ?? defaultLimit, maxLimit)
+    }
+
+    // Public Methods
+
     applyColumnsSelection() {
         let selectParams =
             this.config.select && this.query.select && !this.config.ignoreSelectInQueryParam
@@ -189,25 +242,6 @@ export class NestJsPaginate<T extends ObjectLiteral> {
         return this
     }
 
-    private getSortableColumns() {
-        // Add provided sort by columns
-        this.query.sortBy?.forEach((order) => {
-            const isValidColumn = isEntityKey(this.config.sortableColumns, order[0])
-
-            const isValidSortBy = ['ASC', 'DESC'].includes(order[1].toUpperCase())
-
-            if (!isValidColumn && isValidSortBy) return
-
-            this.sortableColumns.push(order as Order<T>)
-        })
-
-        if (!this.sortableColumns.length) {
-            const defaultSortBy = this.config.defaultSortBy || [[this.config.sortableColumns[0], 'ASC']]
-
-            this.sortableColumns.push(defaultSortBy[0])
-        }
-    }
-
     applySorting() {
         addSort(this)
 
@@ -230,21 +264,6 @@ export class NestJsPaginate<T extends ObjectLiteral> {
         }
 
         return this
-    }
-
-    private getSearchableColumns() {
-        if (!this.config.searchableColumns?.length) return
-
-        if (!this.query.searchBy || this.config.ignoreSearchByInQueryParam) {
-            this.searchableColumns.push(...this.config.searchableColumns)
-            return
-        }
-
-        for (const column of this.query.searchBy) {
-            if (isEntityKey(this.config.searchableColumns, column)) {
-                this.searchableColumns.push(column)
-            }
-        }
     }
 
     applySearch() {
@@ -299,71 +318,32 @@ export class NestJsPaginate<T extends ObjectLiteral> {
             items = await this.queryBuilder.getMany()
         }
 
-        const sortByQuery = this.sortableColumns?.map((order) => `&sortBy=${order.join(':')}`).join('')
-        const searchQuery = this.query.search ? `&search=${this.query.search}` : ''
-
-        const searchByQuery =
-            this.query.searchBy?.length && !this.config.ignoreSearchByInQueryParam
-                ? this.searchableColumns.map((column) => `&searchBy=${column}`).join('')
-                : ''
-
-        // Only expose select in meta data if query select differs from config select
-        const isQuerySelected =
-            this.selectableColumns?.length !== this.config.select?.length && !this.config.ignoreSelectInQueryParam
-        const selectQuery = isQuerySelected ? `&select=${this.selectableColumns?.join(',')}` : ''
-
-        const filterQuery = this.query.filter
-            ? '&' +
-              stringify(
-                  mapKeys(this.query.filter, (_param, name) => 'filter.' + name),
-                  '&',
-                  '=',
-                  { encodeURIComponent: (str) => str }
-              )
-            : ''
-
-        const options = `&limit=${limit}${sortByQuery}${searchQuery}${searchByQuery}${selectQuery}${filterQuery}`
-
-        let path: string = null
-        if (this.query.path !== null) {
-            // `query.path` does not exist in RPC/WS requests and is set to null then.
-            const { queryOrigin, queryPath } = getQueryUrlComponents(this.query.path)
-            if (this.config.relativePath) {
-                path = queryPath
-            } else if (this.config.origin) {
-                path = this.config.origin + queryPath
-            } else {
-                path = queryOrigin + queryPath
-            }
-        }
-        const buildLink = (p: number): string => path + '?page=' + p + options
-
         const totalPages = this.isPaginated ? Math.ceil(totalItems / limit) : 1
+
+        const links = buildLinks(this, totalItems)
 
         const results: Paginated<T> = {
             data: items,
             meta: {
-                itemsPerPage: limit === PaginationLimit.COUNTER_ONLY ? totalItems : isPaginated ? limit : items.length,
+                itemsPerPage: 0,
                 totalItems: limit === PaginationLimit.COUNTER_ONLY || isPaginated ? totalItems : items.length,
                 currentPage: page,
                 totalPages,
                 sortBy: this.sortableColumns,
                 search: this.query.search,
                 searchBy: this.query.search ? this.searchableColumns : undefined,
-                select: isQuerySelected ? this.selectableColumns : undefined,
+                select: this.isQuerySelected ? this.selectableColumns : undefined,
                 filter: this.query.filter,
             },
-            // If there is no `path`, don't build links.
-            links:
-                path !== null
-                    ? {
-                          first: page == 1 ? undefined : buildLink(1),
-                          previous: page - 1 < 1 ? undefined : buildLink(page - 1),
-                          current: buildLink(page),
-                          next: page + 1 > totalPages ? undefined : buildLink(page + 1),
-                          last: page == totalPages || !totalItems ? undefined : buildLink(totalPages),
-                      }
-                    : ({} as Paginated<T>['links']),
+            links,
+        }
+
+        if (limit === PaginationLimit.COUNTER_ONLY) {
+            results.meta.itemsPerPage = totalItems
+        } else if (isPaginated) {
+            results.meta.itemsPerPage = limit
+        } else {
+            results.meta.itemsPerPage = items.length
         }
 
         return Object.assign(new Paginated(), results)
