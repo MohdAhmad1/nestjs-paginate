@@ -1,39 +1,25 @@
-import { Logger, ServiceUnavailableException } from '@nestjs/common'
-import {
-    Brackets,
-    FindOptionsRelations,
-    FindOptionsUtils,
-    ObjectLiteral,
-    Repository,
-    SelectQueryBuilder,
-} from 'typeorm'
+import { FindOptionsRelations, FindOptionsUtils, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm'
 import { OrmUtils } from 'typeorm/util/OrmUtils'
-import { PaginateQuery } from './decorator'
 import { addFilter } from './common/filter'
+import { buildLinks } from './common/linkBuilder'
+import { addSearch } from './common/search'
+import { addSort } from './common/sort'
+import { PaginateQuery } from './decorator'
 import {
-    checkIsEmbedded,
     checkIsRelation,
     Column,
-    extractVirtualProperty,
     fixColumnAlias,
     generateWhereStatement,
     getPropertiesByColumnName,
-    getQueryUrlComponents,
     includesAllPrimaryKeyColumns,
     isEntityKey,
     isRepository,
-    logger,
     Order,
     positiveNumberOrDefault,
     RelationColumn,
     SortBy,
 } from './helper'
 import { PaginateConfig, Paginated, PaginationLimit, PaginationType } from './types'
-import { WherePredicateOperator } from 'typeorm/query-builder/WhereClause'
-import { stringify } from 'querystring'
-import { mapKeys } from 'lodash'
-import { addSort } from './common/sort'
-import { buildLinks } from './common/linkBuilder'
 
 export async function paginate<T extends ObjectLiteral>(
     query: PaginateQuery,
@@ -267,40 +253,7 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     }
 
     applySearch() {
-        if (!this.query.search || !this.searchableColumns.length) return
-
-        this.queryBuilder.andWhere(
-            new Brackets((qb: SelectQueryBuilder<T>) => {
-                for (const column of this.searchableColumns) {
-                    const property = getPropertiesByColumnName(column)
-                    const { isVirtualProperty, query: virtualQuery } = extractVirtualProperty(qb, property)
-                    const isRelation = checkIsRelation(qb, property.propertyPath)
-                    const isEmbedded = checkIsEmbedded(qb, property.propertyPath)
-
-                    const alias = fixColumnAlias(
-                        property,
-                        qb.alias,
-                        isRelation,
-                        isVirtualProperty,
-                        isEmbedded,
-                        virtualQuery
-                    )
-
-                    const condition: WherePredicateOperator = {
-                        operator: 'ilike',
-                        parameters: [alias, `:${property.column}`],
-                    }
-
-                    if (['postgres', 'cockroachdb'].includes(this.queryBuilder.connection.options.type)) {
-                        condition.parameters[0] = `CAST(${condition.parameters[0]} AS text)`
-                    }
-
-                    qb.orWhere(qb['createWhereConditionExpression'](condition), {
-                        [property.column]: `%${this.query.search}%`,
-                    })
-                }
-            })
-        )
+        addSearch(this)
     }
 
     async getPaginatedResponse(): Promise<Paginated<T>> {
