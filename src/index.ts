@@ -1,4 +1,4 @@
-import { FilterOperator, FilterSuffix } from './filter'
+import { FilterOperator, FilterSuffix } from './common/filter'
 
 export * from './decorator'
 export * from './paginate'

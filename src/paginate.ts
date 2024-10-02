@@ -20,6 +20,7 @@ import {
     SortBy,
 } from './helper'
 import { PaginateConfig, Paginated, PaginationLimit, PaginationType } from './types'
+import { fetchRecords } from './common/fetch'
 
 export async function paginate<T extends ObjectLiteral>(
     query: PaginateQuery,
@@ -45,12 +46,13 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     private readonly _paginationLimit: number
 
     constructor(repo: Repository<T> | SelectQueryBuilder<T>, query: PaginateQuery, config: PaginateConfig<T>) {
-        const queryBuilder = this.initialize(repo, config)
+        const queryBuilder = this.initializeQueryBuilder(repo, config)
 
         this.config = config
         this.query = query
         this._queryBuilder = queryBuilder
 
+        this.addRelationJoins()
         this.getSearchableColumns()
         this.getSortableColumns()
 
@@ -76,44 +78,13 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     }
 
     // Initializers
-    private initialize(repo: Repository<T> | SelectQueryBuilder<T>, config: PaginateConfig<T>) {
+    private initializeQueryBuilder(repo: Repository<T> | SelectQueryBuilder<T>, config: PaginateConfig<T>) {
         const queryBuilder = isRepository(repo) ? repo.createQueryBuilder('__root') : repo
 
         if (isRepository(repo) && !config.relations && config.loadEagerRelations === true) {
             if (!config.relations) {
                 FindOptionsUtils.joinEagerRelations(queryBuilder, queryBuilder.alias, repo.metadata)
             }
-        }
-
-        if (config.relations) {
-            const relations = Array.isArray(config.relations)
-                ? OrmUtils.propertyPathsToTruthyObject(config.relations)
-                : config.relations
-
-            function createQueryBuilderRelations(
-                prefix: string,
-                relations: FindOptionsRelations<T> | RelationColumn<T>[],
-                alias?: string
-            ) {
-                Object.keys(relations).forEach((relationName) => {
-                    const relationSchema = relations[relationName]!
-
-                    queryBuilder.leftJoinAndSelect(
-                        `${alias ?? prefix}.${relationName}`,
-                        `${alias ?? prefix}_${relationName}_rel`
-                    )
-
-                    if (typeof relationSchema === 'object') {
-                        createQueryBuilderRelations(
-                            relationName,
-                            relationSchema,
-                            `${alias ?? prefix}_${relationName}_rel`
-                        )
-                    }
-                })
-            }
-
-            createQueryBuilderRelations(queryBuilder.alias, relations)
         }
 
         if (config.withDeleted) {
@@ -126,6 +97,35 @@ export class NestJsPaginate<T extends ObjectLiteral> {
         }
 
         return queryBuilder
+    }
+
+    private addRelationJoins() {
+        if (!this.config.relations) return
+
+        const relations = Array.isArray(this.config.relations)
+            ? OrmUtils.propertyPathsToTruthyObject(this.config.relations)
+            : this.config.relations
+
+        function createQueryBuilderRelations(
+            prefix: string,
+            relations: FindOptionsRelations<T> | RelationColumn<T>[],
+            alias?: string
+        ) {
+            Object.keys(relations).forEach((relationName) => {
+                const relationSchema = relations[relationName]!
+
+                this.queryBuilder.leftJoinAndSelect(
+                    `${alias ?? prefix}.${relationName}`,
+                    `${alias ?? prefix}_${relationName}_rel`
+                )
+
+                if (typeof relationSchema === 'object') {
+                    createQueryBuilderRelations(relationName, relationSchema, `${alias ?? prefix}_${relationName}_rel`)
+                }
+            })
+        }
+
+        createQueryBuilderRelations(this.queryBuilder.alias, relations)
     }
 
     private getSortableColumns() {
@@ -257,19 +257,11 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     }
 
     async getPaginatedResponse(): Promise<Paginated<T>> {
-        let [items, totalItems]: [T[], number] = [[], 0]
-
         const limit = this.paginationLimit
         const page = this.query.page > 0 ? this.query.page : 1
         const isPaginated = this.isPaginated
 
-        if (this.query.limit === PaginationLimit.COUNTER_ONLY) {
-            totalItems = await this.queryBuilder.getCount()
-        } else if (isPaginated) {
-            ;[items, totalItems] = await this.queryBuilder.getManyAndCount()
-        } else {
-            items = await this.queryBuilder.getMany()
-        }
+        const { items, totalItems } = await fetchRecords(this)
 
         const totalPages = this.isPaginated ? Math.ceil(totalItems / limit) : 1
 

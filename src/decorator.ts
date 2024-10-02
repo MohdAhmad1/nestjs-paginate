@@ -54,7 +54,7 @@ export const Paginate = createParamDecorator((_data: unknown, ctx: ExecutionCont
     let query: Record<string, unknown>
 
     switch (ctx.getType()) {
-        case 'http':
+        case 'http': {
             const request: ExpressRequest | FastifyRequest = ctx.switchToHttp().getRequest()
             query = request.query as Record<string, unknown>
 
@@ -69,14 +69,19 @@ export const Paginate = createParamDecorator((_data: unknown, ctx: ExecutionCont
             const urlParts = new URL(originalUrl)
             path = urlParts.protocol + '//' + urlParts.host + urlParts.pathname
             break
-        case 'ws':
+        }
+
+        case 'ws': {
             query = ctx.switchToWs().getData()
             path = null
             break
-        case 'rpc':
+        }
+
+        case 'rpc': {
             query = ctx.switchToRpc().getData()
             path = null
             break
+        }
     }
 
     const searchBy = parseParam<string>(query.searchBy, singleSplit)
