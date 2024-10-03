@@ -1,118 +1,43 @@
-import { FindOperator, FindOptionsWhere, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm'
-import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata'
-import { PaginateQuery } from './decorator'
-import { PaginateConfig, PaginationLimit } from './types'
 import { Logger } from '@nestjs/common'
-
-/**
- * Joins 2 keys as `K`, `K.P`, `K.(P` or `K.P)`
- * The parenthesis notation is included for embedded columns
- */
-type Join<K, P> = K extends string
-    ? P extends string
-        ? `${K}${'' extends P ? '' : '.'}${P | `(${P}` | `${P})`}`
-        : never
-    : never
-
-/**
- * Get the previous number between 0 and 10. Examples:
- *   Prev[3] = 2
- *   Prev[0] = never.
- *   Prev[20] = 0
- */
-type Prev = [never, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, ...0[]]
-
-/**
- * Unwrap Promise<T> to T
- */
-type UnwrapPromise<T> = T extends Promise<infer U> ? UnwrapPromise<U> : T
-
-/**
- * Unwrap Array<T> to T
- */
-type UnwrapArray<T> = T extends Array<infer U> ? UnwrapArray<U> : T
-
-/**
- * Find all the dotted path properties for a given column.
- *
- * T: The column
- * D: max depth
- */
-//                                            v Have we reached max depth?
-export type Column<T, D extends number = 2> = [D] extends [never]
-    ? // yes, stop recursing
-      never
-    : // Are we extending something with keys?
-      T extends Record<string, any>
-      ? {
-            // For every keyof T, find all possible properties as a string union
-            [K in keyof T]-?: K extends string
-                ? // Is it string or number (includes enums)?
-                  T[K] extends string | number
-                    ? // yes, add just the key
-                      `${K}`
-                    : // Is it a Date?
-                      T[K] extends Date
-                      ? // yes, add just the key
-                        `${K}`
-                      : // no, is it an array?
-                        T[K] extends Array<infer U>
-                        ? // yes, unwrap it, and recurse deeper
-                          `${K}` | Join<K, Column<UnwrapArray<U>, Prev[D]>>
-                        : // no, is it a promise?
-                          T[K] extends Promise<infer U>
-                          ? // yes, try to infer its return type and recurse
-                            U extends Array<infer V>
-                              ? `${K}` | Join<K, Column<UnwrapArray<V>, Prev[D]>>
-                              : `${K}` | Join<K, Column<UnwrapPromise<U>, Prev[D]>>
-                          : // no, we have no more special cases, so treat it as an
-                            // object and recurse deeper on its keys
-                            `${K}` | Join<K, Column<T[K], Prev[D]>>
-                : never
-            // Join all the string unions of each keyof T into a single string union
-        }[keyof T]
-      : ''
-
-export type RelationColumn<T> = Extract<
-    Column<T>,
-    {
-        [K in Column<T>]: K extends `${infer R}.${string}` ? R : never
-    }[Column<T>]
->
-
-export type Order<T> = [Column<T>, 'ASC' | 'DESC']
-export type SortBy<T> = Order<T>[]
+import { FindOperator, FindOptionsWhere, Repository, SelectQueryBuilder } from 'typeorm'
+import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata'
+import { Column, ColumnProperties } from './types'
 
 export function isEntityKey<T>(entityColumns: Column<T>[], column: string): column is Column<T> {
     return !!entityColumns.find((c) => c === column)
 }
 
-export const positiveNumberOrDefault = (value: number | undefined, defaultValue: number, minValue: 0 | 1 = 0) =>
-    value === undefined || value < minValue ? defaultValue : value
+export function positiveNumberOrDefault(value: number | undefined, defaultValue: number, minValue: 0 | 1 = 0) {
+    if (value === undefined || value < minValue) {
+        return defaultValue
+    }
 
-export type ColumnProperties = { propertyPath?: string; propertyName: string; isNested: boolean; column: string }
+    return value
+}
 
 export function getPropertiesByColumnName(column: string): ColumnProperties {
     const propertyPath = column.split('.')
-    if (propertyPath.length > 1) {
-        const propertyNamePath = propertyPath.slice(1)
-        let isNested = false,
-            propertyName = propertyNamePath.join('.')
 
-        if (!propertyName.startsWith('(') && propertyNamePath.length > 1) {
-            isNested = true
-        }
-
-        propertyName = propertyName.replace('(', '').replace(')', '')
-
-        return {
-            propertyPath: propertyPath[0],
-            propertyName, // the join is in case of an embedded entity
-            isNested,
-            column: `${propertyPath[0]}.${propertyName}`,
-        }
-    } else {
+    if (propertyPath.length <= 1) {
         return { propertyName: propertyPath[0], isNested: false, column: propertyPath[0] }
+    }
+
+    const propertyNamePath = propertyPath.slice(1)
+
+    let isNested = false
+    let propertyName = propertyNamePath.join('.')
+
+    if (!propertyName.startsWith('(') && propertyNamePath.length > 1) {
+        isNested = true
+    }
+
+    propertyName = propertyName.replace('(', '').replace(')', '')
+
+    return {
+        propertyPath: propertyPath[0],
+        propertyName, // the join is in case of an embedded entity
+        isNested,
+        column: `${propertyPath[0]}.${propertyName}`,
     }
 }
 
@@ -124,6 +49,7 @@ export function extractVirtualProperty(
         ? qb?.expressionMap?.mainAlias?.metadata?.findColumnWithPropertyPath(columnProperties.propertyPath)
               ?.referencedColumn?.entityMetadata // on relation
         : qb?.expressionMap?.mainAlias?.metadata
+
     return (
         metadata?.columns?.find((column) => column.propertyName === columnProperties.propertyName) || {
             isVirtualProperty: false,
@@ -131,11 +57,11 @@ export function extractVirtualProperty(
         }
     )
 }
-
 export function includesAllPrimaryKeyColumns(qb: SelectQueryBuilder<unknown>, propertyPath: string[]): boolean {
     if (!qb || !propertyPath) {
         return false
     }
+
     return qb.expressionMap.mainAlias?.metadata?.primaryColumns
         .map((column) => column.propertyPath)
         .every((column) => propertyPath.includes(column))
@@ -181,32 +107,39 @@ export function fixColumnAlias(
     isEmbedded = false,
     query?: ColumnMetadata['query']
 ): string {
-    if (isRelation) {
-        if (isVirtualProperty && query) {
-            return `(${query(`${alias}_${properties.propertyPath}_rel`)})` // () is needed to avoid parameter conflict
-        } else if ((isVirtualProperty && !query) || properties.isNested) {
-            if (properties.propertyName.includes('.')) {
-                const propertyPath = properties.propertyName.split('.')
-                const nestedRelations = propertyPath
-                    .slice(0, -1)
-                    .map((v) => `${v}_rel`)
-                    .join('_')
-                const nestedCol = propertyPath[propertyPath.length - 1]
-
-                return `${alias}_${properties.propertyPath}_rel_${nestedRelations}.${nestedCol}`
-            } else {
-                return `${alias}_${properties.propertyPath}_rel_${properties.propertyName}`
-            }
-        } else {
-            return `${alias}_${properties.propertyPath}_rel.${properties.propertyName}`
-        }
-    } else if (isVirtualProperty) {
-        return query ? `(${query(`${alias}`)})` : `${alias}_${properties.propertyName}`
-    } else if (isEmbedded) {
-        return `${alias}.${properties.propertyPath}.${properties.propertyName}`
-    } else {
-        return `${alias}.${properties.propertyName}`
+    if (isVirtualProperty) {
+        return query ? `(${query(alias)})` : `${alias}_${properties.propertyName}`
     }
+
+    if (isEmbedded) {
+        return `${alias}.${properties.propertyPath}.${properties.propertyName}`
+    }
+
+    if (!isRelation) {
+        return properties.propertyName
+    }
+
+    // relation is true
+    if (isVirtualProperty && query) {
+        return `(${query(alias + '_' + properties.propertyPath + '_rel')})` // () is needed to avoid parameter conflict
+    }
+
+    if ((isVirtualProperty && !query) || properties.isNested) {
+        if (properties.propertyName.includes('.')) {
+            const propertyPath = properties.propertyName.split('.')
+            const nestedRelations = propertyPath
+                .slice(0, -1)
+                .map((v) => `${v}_rel`)
+                .join('_')
+            const nestedCol = propertyPath[propertyPath.length - 1]
+
+            return `${alias}_${properties.propertyPath}_rel_${nestedRelations}.${nestedCol}`
+        } else {
+            return `${alias}_${properties.propertyPath}_rel_${properties.propertyName}`
+        }
+    }
+
+    return `${alias}_${properties.propertyPath}_rel.${properties.propertyName}`
 }
 
 export function getQueryUrlComponents(path: string): { queryOrigin: string; queryPath: string } {

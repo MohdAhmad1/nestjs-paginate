@@ -7,19 +7,24 @@ import { addSort } from './common/sort'
 import { PaginateQuery } from './decorator'
 import {
     checkIsRelation,
-    Column,
     fixColumnAlias,
     generateWhereStatement,
     getPropertiesByColumnName,
     includesAllPrimaryKeyColumns,
     isEntityKey,
     isRepository,
-    Order,
     positiveNumberOrDefault,
+} from './helper'
+import {
+    Column,
+    Order,
+    PaginateConfig,
+    Paginated,
+    PaginationLimit,
+    PaginationType,
     RelationColumn,
     SortBy,
-} from './helper'
-import { PaginateConfig, Paginated, PaginationLimit, PaginationType } from './types'
+} from './types'
 import { fetchRecords } from './common/fetch'
 
 export async function paginate<T extends ObjectLiteral>(
@@ -190,7 +195,7 @@ export class NestJsPaginate<T extends ObjectLiteral> {
 
     // Public Methods
 
-    applyColumnsSelection() {
+    public applyColumnsSelection() {
         let selectParams =
             this.config.select && this.query.select && !this.config.ignoreSelectInQueryParam
                 ? this.config.select.filter((column) => this.query.select.includes(column))
@@ -220,7 +225,7 @@ export class NestJsPaginate<T extends ObjectLiteral> {
         return this
     }
 
-    applyFilters() {
+    public applyFilters() {
         if (this.query.filter) {
             addFilter(this.queryBuilder, this.query, this.config.filterableColumns)
         }
@@ -228,13 +233,13 @@ export class NestJsPaginate<T extends ObjectLiteral> {
         return this
     }
 
-    applySorting() {
+    public applySorting() {
         addSort(this)
 
         return this
     }
 
-    applyPagination() {
+    public applyPagination() {
         const page = positiveNumberOrDefault(this.query.page, 1, 1)
 
         const limit = this.paginationLimit
@@ -252,11 +257,11 @@ export class NestJsPaginate<T extends ObjectLiteral> {
         return this
     }
 
-    applySearch() {
+    public applySearch() {
         addSearch(this)
     }
 
-    async getPaginatedResponse(): Promise<Paginated<T>> {
+    public async getPaginatedResponse(): Promise<Paginated<T>> {
         const limit = this.paginationLimit
         const page = this.query.page > 0 ? this.query.page : 1
         const isPaginated = this.isPaginated

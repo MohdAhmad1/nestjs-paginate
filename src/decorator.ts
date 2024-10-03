@@ -99,10 +99,10 @@ export const Paginate = createParamDecorator((_data: unknown, ctx: ExecutionCont
     )
 
     return {
-        page: query.page ? parseInt(query.page.toString(), 10) : undefined,
-        limit: query.limit ? parseInt(query.limit.toString(), 10) : undefined,
+        page: query.page ? Number(query.page) : undefined,
+        limit: query.limit ? Number(query.limit) : undefined,
         sortBy,
-        search: query.search ? query.search.toString() : undefined,
+        search: query.search ? String(query.search) : undefined,
         searchBy,
         filter: Object.keys(filter).length ? filter : undefined,
         select,
