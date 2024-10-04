@@ -1,8 +1,8 @@
-import { NestJsPaginate } from 'src/paginate'
-import { PaginationLimit } from 'src/types'
+import { NestJsPaginate } from 'paginate'
+import { PaginationLimit } from 'types'
 
 export async function fetchRecords(qb: NestJsPaginate<any>) {
-    if (this.query.limit === PaginationLimit.COUNTER_ONLY) {
+    if (qb.query.limit === PaginationLimit.COUNTER_ONLY) {
         const totalItems = await qb.queryBuilder.getCount()
         const items = []
 

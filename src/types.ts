@@ -142,3 +142,14 @@ export type RelationColumn<T> = Extract<
 export type Order<T> = [Column<T>, 'ASC' | 'DESC']
 export type SortBy<T> = Order<T>[]
 export type ColumnProperties = { propertyPath?: string; propertyName: string; isNested: boolean; column: string }
+
+export interface PaginateQuery {
+    page?: number
+    limit?: number
+    sortBy?: [string, string][]
+    searchBy?: string[]
+    search?: string
+    filter?: { [column: string]: string | string[] }
+    select?: string[]
+    path: string
+}

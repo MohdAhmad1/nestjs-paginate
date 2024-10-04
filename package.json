@@ -83,6 +83,10 @@
     "testEnvironment": "node",
     "setupFiles": [
       "<rootDir>/../jest.setup.ts"
+    ],
+    "moduleDirectories": [
+      "node_modules",
+      "src"
     ]
   },
   "repository": {

@@ -4,8 +4,8 @@ import { Test } from '@nestjs/testing'
 import { PaginatedSwaggerDocs } from './api-paginated-swagger-docs.decorator'
 import { ApiPaginationQuery } from './api-paginated-query.decorator'
 import { ApiOkPaginatedResponse } from './api-ok-paginated-response.decorator'
-import { PaginateConfig } from 'src/types'
-import { FilterOperator, FilterSuffix } from 'src/common/filter'
+import { PaginateConfig } from 'types'
+import { FilterOperator, FilterSuffix } from 'common/filter'
 
 const BASE_PAGINATION_CONFIG = {
     sortableColumns: ['id'],

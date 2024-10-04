@@ -1,10 +1,7 @@
-import {
-    checkIsEmbedded,
-    checkIsRelation,
-    extractVirtualProperty,
-    fixColumnAlias,
-    getPropertiesByColumnName,
-} from '../helper'
+import { extractVirtualProperty, getPropertiesByColumnName } from '../utils'
+import { fixColumnAlias } from 'utils/fix-column-alias'
+import { checkIsEmbedded } from 'utils/is-embedded'
+import { checkIsRelation } from 'utils/is-relation'
 import { NestJsPaginate } from '../paginate'
 import { Brackets, SelectQueryBuilder } from 'typeorm'
 import { WherePredicateOperator } from 'typeorm/query-builder/WhereClause'

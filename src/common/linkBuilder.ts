@@ -1,6 +1,6 @@
 import { mapKeys } from 'lodash'
 import { stringify } from 'querystring'
-import { getQueryUrlComponents } from '../helper'
+import { getQueryUrlComponents } from 'utils/get-query-url-components'
 import { NestJsPaginate } from '../paginate'
 import { Paginated } from '../types'
 

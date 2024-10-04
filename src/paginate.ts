@@ -4,22 +4,17 @@ import { addFilter } from './common/filter'
 import { buildLinks } from './common/linkBuilder'
 import { addSearch } from './common/search'
 import { addSort } from './common/sort'
-import { PaginateQuery } from './decorator'
-import {
-    checkIsRelation,
-    fixColumnAlias,
-    generateWhereStatement,
-    getPropertiesByColumnName,
-    includesAllPrimaryKeyColumns,
-    isEntityKey,
-    isRepository,
-    positiveNumberOrDefault,
-} from './helper'
+import { getPropertiesByColumnName, includesAllPrimaryKeyColumns, isEntityKey, positiveNumberOrDefault } from './utils'
+import { generateWhereStatement } from './utils/generate-where-statement'
+import { isRepository } from './utils/is-repository'
+import { fixColumnAlias } from './utils/fix-column-alias'
+import { checkIsRelation } from './utils/is-relation'
 import {
     Column,
     Order,
     PaginateConfig,
     Paginated,
+    PaginateQuery,
     PaginationLimit,
     PaginationType,
     RelationColumn,
@@ -107,6 +102,8 @@ export class NestJsPaginate<T extends ObjectLiteral> {
     private addRelationJoins() {
         if (!this.config.relations) return
 
+        const queryBuilder = this.queryBuilder
+
         const relations = Array.isArray(this.config.relations)
             ? OrmUtils.propertyPathsToTruthyObject(this.config.relations)
             : this.config.relations
@@ -119,7 +116,7 @@ export class NestJsPaginate<T extends ObjectLiteral> {
             Object.keys(relations).forEach((relationName) => {
                 const relationSchema = relations[relationName]!
 
-                this.queryBuilder.leftJoinAndSelect(
+                queryBuilder.leftJoinAndSelect(
                     `${alias ?? prefix}.${relationName}`,
                     `${alias ?? prefix}_${relationName}_rel`
                 )

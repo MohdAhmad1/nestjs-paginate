@@ -10,7 +10,6 @@ import { CatToyEntity } from './__tests__/cat-toy.entity'
 import { CatEntity, CutenessLevel } from './__tests__/cat.entity'
 import { ToyShopAddressEntity } from './__tests__/toy-shop-address.entity'
 import { ToyShopEntity } from './__tests__/toy-shop.entity'
-import { PaginateQuery } from './decorator'
 import {
     FilterComparator,
     FilterOperator,
@@ -21,7 +20,7 @@ import {
     parseFilterToken,
 } from './common/filter'
 import { paginate } from './paginate'
-import { PaginateConfig, Paginated, PaginationLimit } from './types'
+import { PaginateConfig, Paginated, PaginateQuery, PaginationLimit } from './types'
 
 const isoStringToDate = (isoString) => new Date(isoString)
 

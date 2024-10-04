@@ -2,6 +2,7 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common'
 import type { Request as ExpressRequest } from 'express'
 import type { FastifyRequest } from 'fastify'
 import { Dictionary, isString, mapKeys, pickBy } from 'lodash'
+import { PaginateQuery } from './types'
 
 function isRecord(data: unknown): data is Record<string, unknown> {
     return data !== null && typeof data === 'object' && !Array.isArray(data)
@@ -9,17 +10,6 @@ function isRecord(data: unknown): data is Record<string, unknown> {
 
 function isExpressRequest(request: unknown): request is ExpressRequest {
     return isRecord(request) && typeof request.get === 'function'
-}
-
-export interface PaginateQuery {
-    page?: number
-    limit?: number
-    sortBy?: [string, string][]
-    searchBy?: string[]
-    search?: string
-    filter?: { [column: string]: string | string[] }
-    select?: string[]
-    path: string
 }
 
 const singleSplit = (param: string, res: any[]) => res.push(param)

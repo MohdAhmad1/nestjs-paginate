@@ -1,13 +1,9 @@
 import { ServiceUnavailableException } from '@nestjs/common'
 import { NestJsPaginate } from '../paginate'
-import {
-    logger,
-    checkIsEmbedded,
-    checkIsRelation,
-    extractVirtualProperty,
-    fixColumnAlias,
-    getPropertiesByColumnName,
-} from '../helper'
+import { logger, extractVirtualProperty, getPropertiesByColumnName } from '../utils'
+import { fixColumnAlias } from 'utils/fix-column-alias'
+import { checkIsEmbedded } from 'utils/is-embedded'
+import { checkIsRelation } from 'utils/is-relation'
 
 function isMariaDbOrMySql(dbType: string) {
     return dbType === 'mariadb' || dbType === 'mysql'

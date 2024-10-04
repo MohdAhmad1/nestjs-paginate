@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { Column, Paginated, SortBy } from 'src/types'
+import { Column, Paginated, SortBy } from 'types'
 
 class PaginatedLinksDocumented {
     @ApiProperty({
